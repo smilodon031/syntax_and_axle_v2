@@ -20,6 +20,14 @@ export default function App() {
   const [steering, setSteering] = useState(0);
   const [direction, setDirection] = useState(0); // -1, 0, 1
   const [speedLimit, setSpeedLimit] = useState(75);
+  
+  const directionRef = useRef(0);
+  const speedLimitRef = useRef(75);
+
+  // Sync refs with state for use in the animation loop without restarting it
+  useEffect(() => { directionRef.current = direction; }, [direction]);
+  useEffect(() => { speedLimitRef.current = speedLimit; }, [speedLimit]);
+
   const [esp32Ip, setEsp32Ip] = useState("192.168.4.1");
   const [showSetup, setShowSetup] = useState(false);
   const [editingIp, setEditingIp] = useState(false);
@@ -67,18 +75,30 @@ export default function App() {
     return () => clearInterval(interval);
   }, [connected]);
 
-  const [lastDriveCmd, setLastDriveCmd] = useState("");
-  const [lastSteerCmd, setLastSteerCmd] = useState("");
+  const lastDriveCmdRef = useRef("");
+  const lastSteerCmdRef = useRef("");
+
+  const handleSteeringChange = useCallback((s: number) => {
+    targetSteeringRef.current = s;
+  }, []);
+
+  const handleSpeedLimitChange = useCallback((val: number) => {
+    setSpeedLimit(val);
+  }, []);
+
+  const handleDirectionChange = useCallback((d: number) => {
+    setDirection(d);
+  }, []);
 
   const sendHttp = useCallback(async (cmd: string, type: 'drive' | 'steer') => {
     if (!esp32Ip) return;
     
-    // Simple state-based deduplication
-    if (type === 'drive' && cmd === lastDriveCmd) return;
-    if (type === 'steer' && cmd === lastSteerCmd) return;
+    // Simple ref-based deduplication to avoid unnecessary re-renders
+    if (type === 'drive' && cmd === lastDriveCmdRef.current) return;
+    if (type === 'steer' && cmd === lastSteerCmdRef.current) return;
 
-    if (type === 'drive') setLastDriveCmd(cmd);
-    if (type === 'steer') setLastSteerCmd(cmd);
+    if (type === 'drive') lastDriveCmdRef.current = cmd;
+    if (type === 'steer') lastSteerCmdRef.current = cmd;
 
     try {
       // Use no-cors for simple ESP32 servers
@@ -86,7 +106,7 @@ export default function App() {
     } catch (err) {
       console.error("HTTP Control Error:", err);
     }
-  }, [esp32Ip, lastDriveCmd, lastSteerCmd]);
+  }, [esp32Ip]);
 
   const sendWs = useCallback((payload: any) => {
     const now = Date.now();
@@ -97,46 +117,46 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const LERP = 0.2; // Reduced from 0.4 for smoother control
+    const LERP = 0.15; // Slightly even smoother
     const tick = () => {
       rafRef.current = requestAnimationFrame(tick);
       const prevT = smoothThrottleRef.current;
       const prevS = smoothSteeringRef.current;
       
-      // Calculate target throttle based on direction and speed limit
-      const targetT = direction === 0 ? 0 : direction * speedLimit;
+      // Calculate target throttle based on current direction and speed limit refs
+      const targetT = directionRef.current === 0 ? 0 : directionRef.current * speedLimitRef.current;
       targetThrottleRef.current = targetT;
 
       smoothThrottleRef.current += (targetThrottleRef.current - prevT) * LERP;
       smoothSteeringRef.current += (targetSteeringRef.current - prevS) * LERP;
       
-      if (Math.abs(smoothThrottleRef.current) < 0.5) smoothThrottleRef.current = 0;
-      if (Math.abs(smoothSteeringRef.current) < 0.5) smoothSteeringRef.current = 0;
+      if (Math.abs(smoothThrottleRef.current) < 0.1) smoothThrottleRef.current = 0;
+      if (Math.abs(smoothSteeringRef.current) < 0.1) smoothSteeringRef.current = 0;
       
       const finalT = Math.round(smoothThrottleRef.current);
       const finalS = Math.round(smoothSteeringRef.current);
       
-      if (finalT !== Math.round(prevT) || finalS !== Math.round(prevS)) {
+      const prevT_rounded = Math.round(prevT);
+      const prevS_rounded = Math.round(prevS);
+
+      if (finalT !== prevT_rounded || finalS !== prevS_rounded) {
         setThrottle(finalT);
         setSteering(finalS);
         sendWs({ throttle: finalT, steering: finalS });
 
-        // --- HTTP COMMAND MAPPING ---
-        // Drive Logic
-        if (finalT > 15) {
-          if (direction === 1) sendHttp('/forward', 'drive');
-          else if (direction === -1) sendHttp('/reverse', 'drive');
+        // --- PROPORTIONAL HTTP COMMAND MAPPING ---
+        // Drive Logic: Send absolute speed and direction
+        if (Math.abs(finalT) > 5) {
+          sendHttp(`/drive?v=${finalT}`, 'drive');
         } else {
           sendHttp('/stop', 'drive');
         }
 
-        // Steering Logic
-        if (finalS < -30) {
-          sendHttp('/left', 'steer');
-        } else if (finalS > 30) {
-          sendHttp('/right', 'steer');
-        } else if (Math.abs(finalS) < 10) {
-          sendHttp('/center', 'steer');
+        // Steering Logic: Send normalized -100 to 100 value
+        if (Math.abs(finalS) > 2) {
+          sendHttp(`/steer?v=${finalS}`, 'steer');
+        } else {
+          sendHttp('/steer?v=0', 'steer');
         }
       }
     };
@@ -144,7 +164,7 @@ export default function App() {
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [sendWs, direction, speedLimit]);
+  }, [sendWs, sendHttp]); // No longer depends on direction or speedLimit
 
   if (showSetup) return <SetupGuide onBack={() => setShowSetup(false)} />;
 
@@ -226,32 +246,32 @@ export default function App() {
       </div>
 
       {/* ── MAIN LANDSCAPE LAYOUT ── */}
-      <div className="relative z-10 flex flex-row items-center justify-between w-full h-full px-8"
-        style={{ paddingTop: 80, paddingBottom: 60 }}>
+      <div className="relative z-10 flex flex-row items-center justify-between w-full h-full px-10"
+        style={{ paddingTop: 50, paddingBottom: 30 }}>
 
-        {/* CONTROLS GROUP: Spaced evenly */}
-        <div className="flex-1 flex flex-row items-center justify-evenly h-full">
-          <ThrottleBar limit={speedLimit} actualThrottle={absThrottle} onChange={setSpeedLimit} size={340} />
-          
-          <GearSelector onChange={setDirection} size={340} />
-
-          <div className="relative">
-            <SteeringWheel onChange={(s) => targetSteeringRef.current = s} size={320} />
-          </div>
+        {/* LEFT CONTROLS: Near the thumb */}
+        <div className="flex flex-row items-center gap-8 h-full">
+          <ThrottleBar limit={speedLimit} actualThrottle={absThrottle} onChange={handleSpeedLimitChange} size={220} />
+          <GearSelector onChange={handleDirectionChange} size={220} />
         </div>
 
-        {/* RIGHT: Telemetry */}
-        <div className="flex flex-col items-center justify-center gap-6 h-full min-w-[180px]">
-          <div className="flex flex-col items-center gap-2 p-5 rounded-2xl bg-black/40 border border-white/5 w-full backdrop-blur-sm">
-            <Gauge size={20} className="text-neon-cyan" />
-            <span className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold">Velocity</span>
-            <span className="text-3xl font-mono font-black text-white">{absThrottle}%</span>
+        {/* CENTER-RIGHT: Steering Wheel */}
+        <div className="flex-1 flex justify-center items-center">
+          <SteeringWheel onChange={handleSteeringChange} size={200} />
+        </div>
+
+        {/* RIGHT: Telemetry - More compact for mobile */}
+        <div className="flex flex-col items-center justify-center gap-3 h-full min-w-[120px]">
+          <div className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-black/40 border border-white/5 w-full backdrop-blur-sm">
+            <Gauge size={14} className="text-neon-cyan" />
+            <span className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold">Velocity</span>
+            <span className="text-xl font-mono font-black text-white">{absThrottle}%</span>
           </div>
           
-          <div className="flex flex-col items-center gap-2 p-5 rounded-2xl bg-black/40 border border-white/5 w-full backdrop-blur-sm">
-            <Compass size={20} className="text-neon-cyan" />
-            <span className="text-[9px] uppercase tracking-[0.2em] text-white/30 font-bold">Vector</span>
-            <span className="text-3xl font-mono font-black text-white">{steering}°</span>
+          <div className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-black/40 border border-white/5 w-full backdrop-blur-sm">
+            <Compass size={14} className="text-neon-cyan" />
+            <span className="text-[7px] uppercase tracking-[0.2em] text-white/30 font-bold">Vector</span>
+            <span className="text-xl font-mono font-black text-white">{steering}°</span>
           </div>
         </div>
       </div>

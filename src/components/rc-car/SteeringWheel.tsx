@@ -69,12 +69,12 @@ const SteeringWheel = memo(({ onChange, disabled, size = 320 }: SteeringWheelPro
           <div className="absolute top-1/2 left-4 right-4 h-1 bg-white/10 -translate-y-1/2" />
           
           {/* Center Cap */}
-          <div className="w-20 h-20 rounded-full bg-zinc-900 border-2 border-white/10 flex items-center justify-center shadow-inner">
-            <div className="w-1 h-6 bg-neon-cyan rounded-full neon-glow-cyan" />
+          <div className="w-14 h-14 rounded-full bg-zinc-900 border-2 border-white/10 flex items-center justify-center shadow-inner">
+            <div className="w-0.5 h-4 bg-neon-cyan rounded-full neon-glow-cyan" />
           </div>
 
           {/* Top Marker */}
-          <div className="absolute top-[-12px] left-1/2 -translate-x-1/2 w-3 h-6 bg-neon-cyan rounded-b-full shadow-[0_0_15px_#00f3ff]" />
+          <div className="absolute top-[-8px] left-1/2 -translate-x-1/2 w-2 h-4 bg-neon-cyan rounded-b-full shadow-[0_0_15px_#00f3ff]" />
         </motion.div>
       </div>
     </div>

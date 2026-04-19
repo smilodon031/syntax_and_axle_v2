@@ -28,8 +28,8 @@ const ThrottleBar = memo(({ limit, actualThrottle, onChange, size = 300 }: Throt
   return (
     <div className="flex flex-col items-center gap-4">
       <div className="flex flex-col items-center">
-        <span className="text-[10px] uppercase tracking-[0.5em] text-white/20 font-bold">Speed Limiter</span>
-        <div className="h-4" /> {/* Spacer to match GearSelector's status indicators height */}
+        <span className="text-[8px] uppercase tracking-[0.2em] text-white/20 font-bold">Speed Limiter</span>
+        <div className="h-2" />
       </div>
       <div 
         ref={containerRef}
@@ -52,16 +52,15 @@ const ThrottleBar = memo(({ limit, actualThrottle, onChange, size = 300 }: Throt
           ))}
         </div>
 
-        {/* Active Fill - Shows the limit */}
         <motion.div 
-          className="w-full rounded-full throttle-fill neon-glow-orange z-20"
+          className="w-full rounded-full throttle-fill neon-glow-cyan z-20"
           style={{ height: `${limit}%` }}
-          transition={{ type: 'spring', stiffness: 500, damping: 35 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 40 }}
         />
 
         {/* Percentage Label */}
         <div className="absolute top-4 left-0 w-full text-center pointer-events-none z-30">
-          <span className="text-sm font-mono font-black text-white neon-text-glow-orange">{limit}%</span>
+          <span className="text-sm font-mono font-black text-white neon-text-glow-cyan">{limit}%</span>
         </div>
       </div>
     </div>
